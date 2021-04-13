@@ -17,7 +17,7 @@ contract AggregatorsProxy is ReentrancyGuard, Ownable {
     uint256 public _GAS_MAX_RETURN_ = 0;
     uint256 public _GAS_EXTERNAL_RETURN_ = 0;
 
-    event OrderHistory(
+    event Swap(
         address fromToken,
         address toToken,
         address sender,
@@ -25,7 +25,7 @@ contract AggregatorsProxy is ReentrancyGuard, Ownable {
         uint256 returnAmount
     );
 
-    modifier judgeExpired(uint256 deadLine) {
+    modifier noExpired(uint256 deadLine) {
         require(deadLine >= block.timestamp, "AggregatorsProxy: EXPIRED");
         _;
     }
@@ -58,7 +58,7 @@ contract AggregatorsProxy is ReentrancyGuard, Ownable {
     )
         external
         payable
-        judgeExpired(deadLine)
+        noExpired(deadLine)
         nonReentrant
         returns (uint256 returnAmount)
     {
@@ -67,9 +67,13 @@ contract AggregatorsProxy is ReentrancyGuard, Ownable {
             fromToken != _CHI_TOKEN_,
             "AggregatorsProxy: NOT_SUPPORT_SELL_CHI"
         );
-        require(toToken != _CHI_TOKEN_, "AggregatorsProxy: NOT_SUPPORT_BUY_CHI");
+        require(
+            toToken != _CHI_TOKEN_,
+            "AggregatorsProxy: NOT_SUPPORT_BUY_CHI"
+        );
 
-        uint256 toTokenOriginBalance = IBEP20(toToken).balanceOf(msg.sender);
+        uint256 _fromTokenBalanceOfOrigin =
+            IBEP20(fromToken).balanceOf(address(this));
         if (fromToken != BNB_ADDRESS) {
             TransferHelper.safeTransferFrom(
                 fromToken,
@@ -77,10 +81,14 @@ contract AggregatorsProxy is ReentrancyGuard, Ownable {
                 address(this),
                 fromTokenAmount
             );
+            uint256 _fromTokenAmount =
+                IBEP20(fromToken).balanceOf(address(this)).sub(
+                    _fromTokenBalanceOfOrigin
+                );
             TransferHelper.safeApprove(
                 fromToken,
                 approveTarget,
-                fromTokenAmount
+                _fromTokenAmount
             );
         }
 
@@ -88,28 +96,34 @@ contract AggregatorsProxy is ReentrancyGuard, Ownable {
             isWhiteListed[swapTarget],
             "AggregatorsProxy: Not Whitelist Contract"
         );
+        uint256 _toTokenBalanceOrigin =
+            toToken == BNB_ADDRESS
+                ? address(this).balance
+                : IBEP20(toToken).balanceOf(address(this));
         (bool success, ) =
             swapTarget.call{value: fromToken == BNB_ADDRESS ? msg.value : 0}(
                 callDataConcat
             );
         require(success, "AggregatorsProxy: External Swap execution Failed");
-
-        TransferHelper.safeTransfer(
-            toToken,
-            msg.sender,
-            IBEP20(toToken).balanceOf(address(this))
-        );
-        returnAmount = IBEP20(toToken).balanceOf(msg.sender).sub(
-            toTokenOriginBalance
-        );
+        uint256 returnAmt =
+            toToken == BNB_ADDRESS
+                ? address(this).balance.sub(_toTokenBalanceOrigin)
+                : IBEP20(toToken).balanceOf(address(this)).sub(
+                    _toTokenBalanceOrigin
+                );
         require(
-            returnAmount >= minReturnAmount,
+            returnAmt >= minReturnAmount,
             "AggregatorsProxy: Return amount is not enough"
         );
+        if (toToken == BNB_ADDRESS) {
+            msg.sender.transfer(returnAmt);
+        } else {
+            TransferHelper.safeTransfer(toToken, msg.sender, returnAmt);
+        }
 
         _externalGasReturn();
 
-        emit OrderHistory(
+        emit Swap(
             fromToken,
             toToken,
             msg.sender,
