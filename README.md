@@ -1,0 +1,2 @@
+# swft-contracts
+Swft Contracts
