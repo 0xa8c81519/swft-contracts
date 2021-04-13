@@ -1,2 +1,3 @@
-# swft-contracts
-Swft Contracts
+# Contracts of SWFT
+
+

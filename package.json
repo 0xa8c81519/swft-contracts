@@ -1,0 +1,58 @@
+{
+    "name": "swft-contrats",
+    "version": "1.0.0",
+    "description": "",
+    "main": "index.js",
+    "scripts": {
+        "k:test:oracle": "truffle test test/oracle.test.ts --network kovan_oracle",
+        "k:test:create": "truffle test test/create.test.ts --network kovan",
+        "k:test:issue": "truffle test test/issue.test.ts --network kovan_skipMigrations",
+        "k:test:buy": "truffle test test/buy.test.ts --network kovan_skipMigrations",
+        "k:test:sell": "truffle test test/sell.test.ts --network kovan_skipMigrations",
+        "k:test:redeem": "truffle test test/redeem.test.ts --network kovan_skipMigrations",
+        "k:test:liquidate": "truffle test test/liquidate.test.ts --network kovan_skipMigrations",
+        "k:test:exercise": "truffle test test/exercise.test.ts --network kovan_skipMigrations",
+        "t:compile": "truffle compile && typechain --target=truffle --outDir build/types/truffle-types \"build/contracts/*.json\"",
+        "t:migrate": "truffle migrate",
+        "g:start": "ganache-cli --deterministic --networkId=5777 --gasLimit=0x2810eb7c --mnemonic='pony human hospital penalty woman delay autumn else room kind inject already'",
+        "o:compile": "oz compile --solc-version=0.6.6 --optimizer on",
+        "t:flattener": "truffle-flattener"
+    },
+    "author": "",
+    "license": "MIT",
+    "dependencies": {
+        "@openzeppelin/contracts-ethereum-package": "^3.0.0",
+        "@uniswap/v2-core": "^1.0.1",
+        "@uniswap/v2-periphery": "^1.1.0-beta.0",
+        "ethereum-tx-decoder": "^3.0.0",
+        "truffle-typings": "^1.0.8"
+    },
+    "devDependencies": {
+        "@openzeppelin/cli": "^2.8.2",
+        "@openzeppelin/contracts": "^3.1.0",
+        "@openzeppelin/test-environment": "^0.1.4",
+        "@openzeppelin/test-helpers": "^0.5.6",
+        "@truffle/hdwallet-provider": "^1.0.42",
+        "@types/chai": "^4.2.12",
+        "@types/mocha": "^8.0.1",
+        "@typescript-eslint/parser": "^2.9.0",
+        "chai": "^4.2.0",
+        "date-fns": "^2.15.0",
+        "eslint": "^6.7.2",
+        "eslint-config-prettier": "^6.7.0",
+        "eslint-plugin-import": "^2.18.2",
+        "eslint-plugin-prettier": "^3.1.1",
+        "husky": "^4.3.8",
+        "mocha": "^8.1.1",
+        "truffle-assertions": "^0.9.2",
+        "ts-node": "^8.10.2",
+        "typechain": "^1.0.5",
+        "typechain-target-truffle": "^1.0.2",
+        "typescript": "3.7.2"
+    },
+    "keywords": [
+        "options",
+        "ethereum",
+        "defi"
+    ]
+}
