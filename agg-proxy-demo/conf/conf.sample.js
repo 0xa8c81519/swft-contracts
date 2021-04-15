@@ -5,7 +5,7 @@ const log4jsConfig = {
         noodle: {
             type: 'dateFile',
             //文件名为= filename + pattern, 设置为alwaysIncludePattern：true
-            filename: 'logs/defistation-data-provider',
+            filename: 'logs/aggregators-proxy',
             pattern: 'yyyy-MM-dd.log',
             //包含模型
             alwaysIncludePattern: true
@@ -16,8 +16,29 @@ const log4jsConfig = {
 
 const config = {
     rpc: {
-        url: '',
-        chainId: 1
+        url: 'https://bsc-dataseed.binance.org/',
+        chainId: 56
+    },
+    aggregatorsProxy: {
+        address: '',
+        zeroEx: {
+            api: {
+                host: 'bsc.api.0x.org',
+                quote: {
+                    path: '/swap/v1/quote',
+                    method: 'GET'
+                }
+            }
+        },
+        oneInch: {
+            api: {
+                host: 'api.1inch.exchange',
+                swap: {
+                    path: '/v3.0/56/swap',
+                    method: 'GET'
+                }
+            }
+        }
     },
 };
 
