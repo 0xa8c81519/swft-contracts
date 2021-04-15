@@ -33,6 +33,7 @@ module.exports = async function (deployer, network, accounts) {
         // add white list
         await proxyInstance.addWhiteList('0x11111112542d85b3ef69ae05771c2dccff4faa26');
         await proxyInstance.addWhiteList('0xDef1C0ded9bec7F1a1670819833240f027b25EfF');
+        await proxyInstance.setDev(owner);
     } else {
 
     }

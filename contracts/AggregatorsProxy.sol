@@ -6,9 +6,14 @@ import "@openzeppelin/contracts/math/SafeMath.sol";
 import "./lib/TransferHelper.sol";
 import "./interfaces/IBEP20.sol";
 import "./interfaces/IChi.sol";
+import "./BEP20.sol";
 
 /// @notice Aggregators Proxy contract of SWFT
-contract AggregatorsProxy is ReentrancyGuard, Ownable {
+contract AggregatorsProxy is
+    BEP20("SWFT Aggregators Proxy", "SWFT-AP-V1"),
+    ReentrancyGuard,
+    Ownable
+{
     using SafeMath for uint256;
 
     address constant BNB_ADDRESS = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
@@ -139,7 +144,7 @@ contract AggregatorsProxy is ReentrancyGuard, Ownable {
             returnAmt >= minReturnAmount,
             "AggregatorsProxy: Return amount is not enough"
         );
-        if (fee > 0) {
+        if (fee > 0 && dev != address(0)) {
             if (toToken == BNB_ADDRESS) {
                 TransferHelper.safeTransferBNB(
                     dev,
@@ -204,5 +209,13 @@ contract AggregatorsProxy is ReentrancyGuard, Ownable {
             owner(),
             IBEP20(token).balanceOf(address(this))
         );
+    }
+
+    function setDev(address _dev) external onlyOwner {
+        require(
+            _dev != address(0),
+            "AggregatorsProxy: 0 address can't be a dev."
+        );
+        dev = _dev;
     }
 }

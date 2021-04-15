@@ -106,3 +106,5 @@ dist
 build
 
 secret.js
+
+*/**/conf.js
