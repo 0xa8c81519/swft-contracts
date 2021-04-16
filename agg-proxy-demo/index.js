@@ -26,6 +26,7 @@ const aggregatorsProxyContract = new ethers.Contract(aggProxyAddress, Aggregator
 
 let done = false;
 let filter = aggregatorsProxyContract.filters.Swap(null, null, walletMnemonic.address, null, null, null, null);
+// 监听一下swap调用成功后返回的数据
 aggregatorsProxyContract.on(filter, (fromToken, toToken, sender, fromAmount, minReturnAmount, returnAmount, target) => {
     logger.info('swap record:\nfromToken: ' + fromToken + '\ntoToken: ' + toToken + '\nsender: ' + sender + '\n fromAmount: ' + fromAmount + '\nminReturnAmount: ' + minReturnAmount + '\nreturnAmount: ' + returnAmount + '\ntarget: ' + target);
     down = true;
@@ -44,18 +45,22 @@ let denominator = new BigNumber(10).exponentiatedBy(18);
 let amountWei = new BigNumber(10).multipliedBy(denominator);
 
 let pArr = new Array();
-
+// 调用1inch和0x的api
 pArr.push(api.oneInch.swap(cake, busd, amountWei.toFixed(0), aggProxyAddress));
 pArr.push(api.zeroEx.quote(cake, busd, amountWei.toFixed(0)));
 
 Promise.all(pArr).then(res => {
+    // 两个api都返回结果之后
     let oneInchPrice = new BigNumber(res[0].price);
     let zeroExPrice = new BigNumber(res[1].toTokenAmount).div(denominator);
+    // 比较价格，选最优的api返回的data数据
     let data = oneInchPrice.comparedTo(zeroExPrice) > 0 ? res[0].data : res[1].tx.data;
     let minReturn = oneInchPrice.comparedTo(zeroExPrice) > 0 ? oneInchPrice : zeroExPrice;
     let approveTarget = oneInchPrice.comparedTo(zeroExPrice) > 0 ? oneInchRouter : zeroExRouter;
     let deaLine = Math.floor(new Date() / 1000) + 20 * 60;
+    // 跟前端是一样的。先估算gas
     aggregatorsProxyContract.estimate.swap(cake, busd, approveTarget, amountWei.toFixed(0), minReturn.multipliedBy(denominator).toFixed(0), data, deaLine, { from: walletMnemonic.address }).then(gas => {
+        // 调用链上合约
         aggregatorsProxyContract.connect(wallet).swap(cake, busd, approveTarget, amountWei.toFixed(0), minReturn.multipliedBy(denominator).toFixed(0), data, deaLine).thne(res => {
             logger.info('Swap tx is send.');
         }).catch(e => {
@@ -66,7 +71,7 @@ Promise.all(pArr).then(res => {
     });
 });
 
-for (; true === true;) {
+for (; true === true;) { // 程序做成守护进程，直到调用swap确认后推出
     if (done) {
         break;
     }
