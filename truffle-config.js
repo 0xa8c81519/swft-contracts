@@ -106,6 +106,8 @@ module.exports = {
             provider: () => new HDWalletProvider(mnemonic, "https://bsc-dataseed1.defibit.io/"),
             network_id: 56,
             chain_id: 56,
+            gas: 3000000,
+            skipDryRun: true,
         },
         _test_bsc: {
             provider: () => new HDWalletProvider(mnemonic, "https://data-seed-prebsc-1-s2.binance.org:8545/"),
