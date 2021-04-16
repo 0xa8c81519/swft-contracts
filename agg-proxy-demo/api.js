@@ -5,6 +5,11 @@ const querystring = require('querystring');
 
 function get(options, logger) {
     options.method = 'GET';
+    // options.path = 'https://' + options.host  + options.path;
+    // options.host = '127.0.0.1';
+    // options.port = '7890';
+    logger.debug('Host: ' + options.host);
+    logger.debug('Path: ' + options.path);
     let headers = {
         // 'Host': 'www.example.com',
         // 'Authorization': auth,
@@ -33,7 +38,7 @@ function get(options, logger) {
                 logger.error(error.message);
                 // Consume response data to free up memory
                 res.resume();
-                resolve(error);
+                throw error;
                 return;
             }
 

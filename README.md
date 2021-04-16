@@ -56,4 +56,17 @@ truffle migrate --network=bsc_main
 node index.js
 ```
 
+## 调试结果
+
+这笔交易由于发合约的时候gas不够，然后没设置手续费，所以没收。
+https://bscscan.com/tx/0x791a9a3e73108a97547d632304647a441602a8cfc9e2bd4a822f9b92116874a6
+
+这比交易有收手续费
+https://bscscan.com/tx/0xba4456eaf37b6ccef398cef1455946625a7d3b39c9fd0fb7d586fe623edb3a4a
+
+busd 换 cake
+https://bscscan.com/tx/0x5b2963f3b9754de1ef187de2366414faad5f44ef6eb4535a27c44b322cce4102
+
+cake 换 busd
+
 

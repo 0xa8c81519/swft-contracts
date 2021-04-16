@@ -1,6 +1,7 @@
 "use strict"
 const ethers = require("ethers");
 const AggregatorsProxyJson = require('../build/contracts/AggregatorsProxy.json');
+const BEP20Json = require('../build/contracts/BEP20.json');
 const { mnemonic } = require('../secret.js');
 const BigNumber = require('bignumber.js');
 const log4js = require('log4js');
@@ -14,6 +15,11 @@ logger.info('Aggregators Proxy Demo started.');
 
 // 合约地址
 const aggProxyAddress = config.default.aggregatorsProxy.address;
+const bnb = '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE';
+const cake = '0x0E09FaBB73Bd3Ade0a17ECC321fD13a19e81cE82';
+const busd = '0x55d398326f99059ff775485246999027b3197955';
+const oneInchRouter = '0x11111112542d85b3ef69ae05771c2dccff4faa26';
+const zeroExRouter = '0xDef1C0ded9bec7F1a1670819833240f027b25EfF';
 
 // 初始化rpc provider，浏览器中不需要
 const provider = new ethers.providers.JsonRpcProvider(config.default.rpc.url);
@@ -24,6 +30,9 @@ const wallet = walletMnemonic.connect(provider);
 
 // 初始化聚合器代理合约，浏览器中方法是一样的。
 const aggregatorsProxyContract = new ethers.Contract(aggProxyAddress, AggregatorsProxyJson.abi, wallet);
+
+const busdContract = new ethers.Contract(busd, BEP20Json.abi, wallet);
+const cakeContract = new ethers.Contract(cake, BEP20Json.abi, wallet);
 
 let done = false;
 let filter = aggregatorsProxyContract.filters.Swap(null, null, null, null, null, null, null);
@@ -36,68 +45,150 @@ aggregatorsProxyContract.on(filter, (fromToken, toToken, sender, fromAmount, min
 
 let api = apiModule.init(log4js, config.default);
 
-let bnb = '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE';
-let cake = '0x0E09FaBB73Bd3Ade0a17ECC321fD13a19e81cE82';
-let busd = '0x55d398326f99059ff775485246999027b3197955';
-let oneInchRouter = '0x11111112542d85b3ef69ae05771c2dccff4faa26';
-let zeroExRouter = '0xDef1C0ded9bec7F1a1670819833240f027b25EfF';
+
 let slippage = 0.01;
 
 let denominator = new BigNumber(10).exponentiatedBy(18);
-let amountWei = new BigNumber(10).multipliedBy(denominator);
 
-let pArr = new Array();
 // 调用1inch和0x的api
 // 1 cake 换 busd
 // pArr.push(api.oneInch.swap(cake, busd, amountWei.toFixed(0), aggProxyAddress));
 // pArr.push(api.zeroEx.quote(cake, busd, amountWei.toFixed(0)));
 // 0.05 bnb swap busd
 
-(function swapBnbToBusd() {
+function swapBnbToBusd() { // bnb 换 busd
+    let pArr = new Array();
     let amtWei = new BigNumber(0.05).multipliedBy(denominator).toFixed(0);
     pArr.push(api.oneInch.swap(bnb, busd, amtWei, aggProxyAddress));
     pArr.push(api.zeroEx.quote(bnb, busd, amtWei));
 
     Promise.all(pArr).then(res => {
         // 两个api都返回结果之后
-        let oneInchPrice = new BigNumber(res[0].toTokenAmount).div(res[0].fromTokenAmount);
-        let zeroExPrice = new BigNumber(res[1].price);
-        logger.info('1inch price: ' + oneInchPrice.toFormat(9, BigNumber.ROUND_DOWN));
-        logger.info('zeroEx price: ' + zeroExPrice.toFormat(9, BigNumber.ROUND_DOWN));
+        let oneIncheAmt = new BigNumber(res[0].toTokenAmount);
+        let zeroExAmt = new BigNumber(res[1].buyAmount);
+        logger.info('1inch amt: ' + oneIncheAmt.div(denominator).toFormat(18, BigNumber.ROUND_DOWN));
+        logger.info('zeroEx amt: ' + zeroExAmt.div(denominator).toFormat(18, BigNumber.ROUND_DOWN));
         // 比较价格，选最优的api返回的data数据
-        let data = oneInchPrice.comparedTo(zeroExPrice) > 0 ? res[0].tx.data : res[1].data;
-        let minReturn = oneInchPrice.comparedTo(zeroExPrice) > 0 ? oneInchPrice.multipliedBy(amtWei).multipliedBy(1 - slippage) : zeroExPrice.multipliedBy(amtWei).multipliedBy(1 - slippage);
-        logger.debug('min return amt: ' + minReturn.toFormat(0, 1));
-        let approveTarget = oneInchPrice.comparedTo(zeroExPrice) > 0 ? oneInchRouter : zeroExRouter;
+        let data = oneIncheAmt.comparedTo(zeroExAmt) > 0 ? res[0].tx.data : res[1].data;
+        // 根据滑点，能够接受的最小的兑换数量
+        let minReturn = oneIncheAmt.comparedTo(zeroExAmt) > 0 ? oneIncheAmt.multipliedBy(1 - slippage) : zeroExAmt.multipliedBy(1 - slippage);
+        logger.debug('min return amt: ' + minReturn.div(denominator).toFormat(18, 1));
+        let approveTarget = oneIncheAmt.comparedTo(zeroExAmt) > 0 ? oneInchRouter : zeroExRouter;
         let deadLine = Math.floor(new Date() / 1000) + 20 * 60;
-        aggregatorsProxyContract.isWhiteListed(approveTarget).then(async isWhiteListed => {
-            if (!isWhiteListed) {
-                logger.error("Not white listed.");
-                logger.error("Approve target: " + approveTarget);
-                // await aggregatorsProxyContract.addWhiteList(zeroExRouter);
-                // await aggregatorsProxyContract.addWhiteList(oneInchRouter);
-            } else {
-                let valHex = new ethers.utils.BigNumber(amtWei).toHexString();
-                logger.debug('value hex: ' + valHex);
-                // 跟前端是一样的。先估算gas
-                aggregatorsProxyContract.estimate.swap(bnb, busd, approveTarget, amountWei.toFixed(0), minReturn.toFixed(0), data, deadLine, { value: valHex }).then(gas => {
-                    // 调用链上合约
-                    aggregatorsProxyContract.connect(wallet).swap(bnb, busd, approveTarget, amountWei.toFixed(0), minReturn.toFixed(0), data, deadLine, { value: valHex, gasLimit: gas }).then(res => {
-                        logger.info('Swap tx is send.');
-                    }).catch(e => {
-                        logger.error(e);
-                    });
+        let valHex = new ethers.utils.BigNumber(amtWei).toHexString();
+        logger.debug('value hex: ' + valHex);
+        // 跟前端是一样的。先估算gas
+        aggregatorsProxyContract.estimate.swap(bnb, busd, approveTarget, amtWei, minReturn.toFixed(0), data, deadLine, { value: valHex }).then(gas => {
+            // 调用链上合约
+            aggregatorsProxyContract.connect(wallet).swap(bnb, busd, approveTarget, amtWei, minReturn.toFixed(0), data, deadLine, { value: valHex, gasLimit: gas }).then(res => {
+                logger.info('Swap tx is send.');
+            }).catch(e => {
+                logger.error(e);
+            });
+        }).catch(e => {
+            logger.error(e);
+        });
+    });
+};
+
+async function swapBusdToCake() { // busd 换 cake
+    let pArr = new Array();
+    logger.debug('accounts[0]: ' + walletMnemonic.address);
+    let busdBalance = await busdContract.balanceOf(walletMnemonic.address);
+    logger.debug('busd balance: ' + busdBalance);
+    let filter = busdContract.filters.Approval(walletMnemonic.address, aggProxyAddress, null);
+    let swap = function () {
+        let amtWei = String(busdBalance);
+        logger.debug('amtWei: ' + amtWei);
+        pArr.push(api.oneInch.swap(busd, cake, amtWei, aggProxyAddress));
+        pArr.push(api.zeroEx.quote(busd, cake, amtWei));
+
+        Promise.all(pArr).then(res => {
+            let oneIncheAmt = new BigNumber(res[0].toTokenAmount);
+            let zeroExAmt = new BigNumber(res[1].buyAmount);
+            logger.info('1inch amt: ' + oneIncheAmt.div(denominator).toFormat(18, BigNumber.ROUND_DOWN));
+            logger.info('zeroEx amt: ' + zeroExAmt.div(denominator).toFormat(18, BigNumber.ROUND_DOWN));
+            // 比较价格，选最优的api返回的data数据
+            let data = oneIncheAmt.comparedTo(zeroExAmt) > 0 ? res[0].tx.data : res[1].data;
+            // 根据滑点，能够接受的最小的兑换数量
+            let minReturn = oneIncheAmt.comparedTo(zeroExAmt) > 0 ? oneIncheAmt.multipliedBy(1 - slippage) : zeroExAmt.multipliedBy(1 - slippage);
+            logger.debug('min return amt: ' + minReturn.div(denominator).toFormat(18, 1));
+            let approveTarget = oneIncheAmt.comparedTo(zeroExAmt) > 0 ? oneInchRouter : zeroExRouter;
+            let deadLine = Math.floor(new Date() / 1000) + 20 * 60;
+            // 跟前端是一样的。先估算gas
+            aggregatorsProxyContract.estimate.swap(busd, cake, approveTarget, amtWei, minReturn.toFixed(0), data, deadLine).then(gas => {
+                // 调用链上合约
+                aggregatorsProxyContract.connect(wallet).swap(busd, cake, approveTarget, amtWei, minReturn.toFixed(0), data, deadLine).then(res => {
+                    logger.info('Swap tx is send.');
                 }).catch(e => {
                     logger.error(e);
                 });
-            }
+            }).catch(e => {
+                logger.error(e);
+            });
         });
+    };
+    busdContract.on(filter, (owner, spender, amount) => { // approve 成功以后才能兑换
+        logger.debug('Approve success: ' + amount);
+        swap();
     });
-})();
+    let allowance = await busdContract.allowance(walletMnemonic.address, aggProxyAddress);
+    if (new BigNumber(allowance).comparedTo(busdBalance) < 0) {
+        await busdContract.approve(aggProxyAddress, busdBalance);
+    } else {
+        swap();
+    }
+};
 
+async function swapCakeToBnb() { // cake 换 bnb
+    let pArr = new Array();
+    logger.debug('accounts[0]: ' + walletMnemonic.address);
+    let cakeBalance = await cakeContract.balanceOf(walletMnemonic.address);
+    logger.debug('cake balance: ' + cakeBalance);
+    let filter = cakeContract.filters.Approval(walletMnemonic.address, aggProxyAddress, null);
+    let swap = function () {
+        let amtWei = String(cakeBalance);
+        logger.debug('amtWei: ' + amtWei);
+        pArr.push(api.oneInch.swap(cake, bnb, amtWei, aggProxyAddress));
+        pArr.push(api.zeroEx.quote(cake, bnb, amtWei));
 
-// for (; true === true;) { // 程序做成守护进程，直到调用swap确认后推出
-//     if (done) {
-//         break;
-//     }
-// }
+        Promise.all(pArr).then(res => {
+            let oneIncheAmt = new BigNumber(res[0].toTokenAmount);
+            let zeroExAmt = new BigNumber(res[1].buyAmount);
+            logger.info('1inch amt: ' + oneIncheAmt.div(denominator).toFormat(18, BigNumber.ROUND_DOWN));
+            logger.info('zeroEx amt: ' + zeroExAmt.div(denominator).toFormat(18, BigNumber.ROUND_DOWN));
+            // 比较价格，选最优的api返回的data数据
+            let data = oneIncheAmt.comparedTo(zeroExAmt) > 0 ? res[0].tx.data : res[1].data;
+            // 根据滑点，能够接受的最小的兑换数量
+            let minReturn = oneIncheAmt.comparedTo(zeroExAmt) > 0 ? oneIncheAmt.multipliedBy(1 - slippage) : zeroExAmt.multipliedBy(1 - slippage);
+            logger.debug('min return amt: ' + minReturn.div(denominator).toFormat(18, 1));
+            let approveTarget = oneIncheAmt.comparedTo(zeroExAmt) > 0 ? oneInchRouter : zeroExRouter;
+            let deadLine = Math.floor(new Date() / 1000) + 20 * 60;
+            // 跟前端是一样的。先估算gas
+            aggregatorsProxyContract.estimate.swap(cake, bnb, approveTarget, amtWei, minReturn.toFixed(0), data, deadLine).then(gas => {
+                // 调用链上合约
+                aggregatorsProxyContract.connect(wallet).swap(cake, bnb, approveTarget, amtWei, minReturn.toFixed(0), data, deadLine).then(res => {
+                    logger.info('Swap tx is send.');
+                }).catch(e => {
+                    logger.error(e);
+                });
+            }).catch(e => {
+                logger.error(e);
+            });
+        });
+    };
+    cakeContract.on(filter, (owner, spender, amount) => { // approve 成功以后才能兑换
+        logger.debug('Approve success: ' + amount);
+        swap();
+    });
+    let allowance = await cakeContract.allowance(walletMnemonic.address, aggProxyAddress);
+    if (new BigNumber(allowance).comparedTo(cakeBalance) < 0) {
+        await cakeContract.approve(aggProxyAddress, cakeBalance);
+    } else {
+        swap();
+    }
+};
+
+// swapBnbToBusd();
+// swapBusdToCake();
+swapCakeToBnb();
