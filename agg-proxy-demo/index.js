@@ -35,12 +35,12 @@ const busdContract = new ethers.Contract(busd, BEP20Json.abi, wallet);
 const cakeContract = new ethers.Contract(cake, BEP20Json.abi, wallet);
 
 let done = false;
-let filter = aggregatorsProxyContract.filters.Swap(null, null, null, null, null, null, null);
+// let filter = aggregatorsProxyContract.filters.Swap(null, null, null, null, null, null, null);
 // 监听一下swap调用成功后返回的数据
-aggregatorsProxyContract.on(filter, (fromToken, toToken, sender, fromAmount, minReturnAmount, returnAmount, target) => {
-    logger.info('swap record:\nfromToken: ' + fromToken + '\ntoToken: ' + toToken + '\nsender: ' + sender + '\n fromAmount: ' + fromAmount + '\nminReturnAmount: ' + minReturnAmount + '\nreturnAmount: ' + returnAmount + '\ntarget: ' + target);
-    done = true;
-});
+// aggregatorsProxyContract.on(filter, (fromToken, toToken, sender, fromAmount, minReturnAmount, returnAmount, target) => {
+//     logger.info('swap record:\nfromToken: ' + fromToken + '\ntoToken: ' + toToken + '\nsender: ' + sender + '\n fromAmount: ' + fromAmount + '\nminReturnAmount: ' + minReturnAmount + '\nreturnAmount: ' + returnAmount + '\ntarget: ' + target);
+//     done = true;
+// });
 
 
 let api = apiModule.init(log4js, config.default);
@@ -56,7 +56,8 @@ let denominator = new BigNumber(10).exponentiatedBy(18);
 // pArr.push(api.zeroEx.quote(cake, busd, amountWei.toFixed(0)));
 // 0.05 bnb swap busd
 
-function swapBnbToBusd() { // bnb 换 busd
+function swapBnbToBusd(cb) { // bnb 换 busd
+
     let pArr = new Array();
     let amtWei = new BigNumber(0.05).multipliedBy(denominator).toFixed(0);
     pArr.push(api.oneInch.swap(bnb, busd, amtWei, aggProxyAddress));
@@ -74,6 +75,7 @@ function swapBnbToBusd() { // bnb 换 busd
         let minReturn = oneIncheAmt.comparedTo(zeroExAmt) > 0 ? oneIncheAmt.multipliedBy(1 - slippage) : zeroExAmt.multipliedBy(1 - slippage);
         logger.debug('min return amt: ' + minReturn.div(denominator).toFormat(18, 1));
         let approveTarget = oneIncheAmt.comparedTo(zeroExAmt) > 0 ? oneInchRouter : zeroExRouter;
+        logger.info('Target: ' + approveTarget);
         let deadLine = Math.floor(new Date() / 1000) + 20 * 60;
         let valHex = new ethers.utils.BigNumber(amtWei).toHexString();
         logger.debug('value hex: ' + valHex);
@@ -82,21 +84,30 @@ function swapBnbToBusd() { // bnb 换 busd
             // 调用链上合约
             aggregatorsProxyContract.connect(wallet).swap(bnb, busd, approveTarget, amtWei, minReturn.toFixed(0), data, deadLine, { value: valHex, gasLimit: gas }).then(res => {
                 logger.info('Swap tx is send.');
+                let filter = aggregatorsProxyContract.filters.Swap(null, null, null, null, null, null, null);
+                let swapListener = (fromToken, toToken, sender, fromAmount, minReturnAmount, returnAmount, target) => {
+                    logger.info('swap record:\nfromToken: ' + fromToken + '\ntoToken: ' + toToken + '\nsender: ' + sender + '\n fromAmount: ' + fromAmount + '\nminReturnAmount: ' + minReturnAmount + '\nreturnAmount: ' + returnAmount + '\ntarget: ' + target);
+                    if (cb) {
+                        cb(true);
+                    }
+                };
+                aggregatorsProxyContract.once(filter, swapListener);
             }).catch(e => {
                 logger.error(e);
             });
         }).catch(e => {
             logger.error(e);
         });
+    }).catch(e => {
+        logger.error(e);
     });
 };
 
-async function swapBusdToCake() { // busd 换 cake
+async function swapBusdToCake(cb) { // busd 换 cake
     let pArr = new Array();
     logger.debug('accounts[0]: ' + walletMnemonic.address);
     let busdBalance = await busdContract.balanceOf(walletMnemonic.address);
     logger.debug('busd balance: ' + busdBalance);
-    let filter = busdContract.filters.Approval(walletMnemonic.address, aggProxyAddress, null);
     let swap = function () {
         let amtWei = String(busdBalance);
         logger.debug('amtWei: ' + amtWei);
@@ -114,38 +125,53 @@ async function swapBusdToCake() { // busd 换 cake
             let minReturn = oneIncheAmt.comparedTo(zeroExAmt) > 0 ? oneIncheAmt.multipliedBy(1 - slippage) : zeroExAmt.multipliedBy(1 - slippage);
             logger.debug('min return amt: ' + minReturn.div(denominator).toFormat(18, 1));
             let approveTarget = oneIncheAmt.comparedTo(zeroExAmt) > 0 ? oneInchRouter : zeroExRouter;
+            logger.info('Target: ' + approveTarget);
             let deadLine = Math.floor(new Date() / 1000) + 20 * 60;
             // 跟前端是一样的。先估算gas
             aggregatorsProxyContract.estimate.swap(busd, cake, approveTarget, amtWei, minReturn.toFixed(0), data, deadLine).then(gas => {
                 // 调用链上合约
                 aggregatorsProxyContract.connect(wallet).swap(busd, cake, approveTarget, amtWei, minReturn.toFixed(0), data, deadLine).then(res => {
                     logger.info('Swap tx is send.');
+                    let filter = aggregatorsProxyContract.filters.Swap(null, null, null, null, null, null, null);
+                    let swapListener = (fromToken, toToken, sender, fromAmount, minReturnAmount, returnAmount, target) => {
+                        logger.info('swap record:\nfromToken: ' + fromToken + '\ntoToken: ' + toToken + '\nsender: ' + sender + '\n fromAmount: ' + fromAmount + '\nminReturnAmount: ' + minReturnAmount + '\nreturnAmount: ' + returnAmount + '\ntarget: ' + target);
+                        if (cb) {
+                            cb(true);
+                        }
+                    };
+                    aggregatorsProxyContract.once(filter, swapListener);
                 }).catch(e => {
                     logger.error(e);
                 });
             }).catch(e => {
                 logger.error(e);
             });
+        }).catch(e => {
+            logger.error(e);
         });
     };
-    busdContract.on(filter, (owner, spender, amount) => { // approve 成功以后才能兑换
-        logger.debug('Approve success: ' + amount);
-        swap();
-    });
+
     let allowance = await busdContract.allowance(walletMnemonic.address, aggProxyAddress);
+    logger.debug('allowance: ' + allowance);
     if (new BigNumber(allowance).comparedTo(busdBalance) < 0) {
-        await busdContract.approve(aggProxyAddress, busdBalance);
+        busdContract.approve(aggProxyAddress, busdBalance).then(() => {
+            let filterApprove = busdContract.filters.Approval(walletMnemonic.address, aggProxyAddress, null);
+            busdContract.once(filterApprove, (owner, spender, amount) => { // approve 成功以后才能兑换
+                logger.debug('Approve success: ' + amount);
+                swap();
+            });
+        });
     } else {
         swap();
     }
+
 };
 
-async function swapCakeToBnb() { // cake 换 bnb
+async function swapCakeToBnb(cb) { // cake 换 bnb
     let pArr = new Array();
     logger.debug('accounts[0]: ' + walletMnemonic.address);
     let cakeBalance = await cakeContract.balanceOf(walletMnemonic.address);
     logger.debug('cake balance: ' + cakeBalance);
-    let filter = cakeContract.filters.Approval(walletMnemonic.address, aggProxyAddress, null);
     let swap = function () {
         let amtWei = String(cakeBalance);
         logger.debug('amtWei: ' + amtWei);
@@ -163,32 +189,52 @@ async function swapCakeToBnb() { // cake 换 bnb
             let minReturn = oneIncheAmt.comparedTo(zeroExAmt) > 0 ? oneIncheAmt.multipliedBy(1 - slippage) : zeroExAmt.multipliedBy(1 - slippage);
             logger.debug('min return amt: ' + minReturn.div(denominator).toFormat(18, 1));
             let approveTarget = oneIncheAmt.comparedTo(zeroExAmt) > 0 ? oneInchRouter : zeroExRouter;
+            logger.info('Target: ' + approveTarget);
             let deadLine = Math.floor(new Date() / 1000) + 20 * 60;
             // 跟前端是一样的。先估算gas
             aggregatorsProxyContract.estimate.swap(cake, bnb, approveTarget, amtWei, minReturn.toFixed(0), data, deadLine).then(gas => {
                 // 调用链上合约
                 aggregatorsProxyContract.connect(wallet).swap(cake, bnb, approveTarget, amtWei, minReturn.toFixed(0), data, deadLine).then(res => {
                     logger.info('Swap tx is send.');
+                    let filter = aggregatorsProxyContract.filters.Swap(null, null, null, null, null, null, null);
+                    let swapListener = (fromToken, toToken, sender, fromAmount, minReturnAmount, returnAmount, target) => {
+                        logger.info('swap record:\nfromToken: ' + fromToken + '\ntoToken: ' + toToken + '\nsender: ' + sender + '\n fromAmount: ' + fromAmount + '\nminReturnAmount: ' + minReturnAmount + '\nreturnAmount: ' + returnAmount + '\ntarget: ' + target);
+                        if (cb) {
+                            cb(true);
+                        }
+                    };
+                    aggregatorsProxyContract.once(filter, swapListener);
+
                 }).catch(e => {
                     logger.error(e);
                 });
             }).catch(e => {
                 logger.error(e);
             });
+        }).catch(e => {
+            logger.error(e);
         });
     };
-    cakeContract.on(filter, (owner, spender, amount) => { // approve 成功以后才能兑换
-        logger.debug('Approve success: ' + amount);
-        swap();
-    });
+
     let allowance = await cakeContract.allowance(walletMnemonic.address, aggProxyAddress);
+    logger.debug('allowance: ' + allowance);
     if (new BigNumber(allowance).comparedTo(cakeBalance) < 0) {
-        await cakeContract.approve(aggProxyAddress, cakeBalance);
+        cakeContract.approve(aggProxyAddress, cakeBalance).then(() => {
+            let filterApprove = cakeContract.filters.Approval(walletMnemonic.address, aggProxyAddress, null);
+            cakeContract.once(filterApprove, (owner, spender, amount) => { // approve 成功以后才能兑换
+                logger.debug('Approve success: ' + amount);
+                swap();
+            });
+        });
     } else {
         swap();
     }
 };
 
-// swapBnbToBusd();
-// swapBusdToCake();
-swapCakeToBnb();
+swapBnbToBusd(r => {
+    swapBusdToCake(r => {
+        swapCakeToBnb(r => {
+            aggregatorsProxyContract.removeAllListeners('Swap');
+        });
+    });
+});
