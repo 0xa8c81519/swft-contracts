@@ -25,8 +25,9 @@ module.exports = async function (deployer, network, accounts) {
     } else if (deployer.network_id == 1) { // main net
     } else if (deployer.network_id == 42) { // kovan
     } else if (deployer.network_id == 56) { // bsc main net
-        await deployer.deploy(AggregatorsProxy, '0x0000000000000000000000000000000000000000', owner);
+        await deployer.deploy(AggregatorsProxy, 'SWFT Aggregators Proxy', 'SWFTAP-beta', '0x0000000000000000000000000000000000000000', owner);
         let proxyInstance = await AggregatorsProxy.deployed();
+        console.log('AggregatorsProxy address: ' + proxyInstance.address);
         // fee 0.3%
         await proxyInstance.setFee('3000000000000000');
         // add white list
@@ -34,8 +35,9 @@ module.exports = async function (deployer, network, accounts) {
         await proxyInstance.addWhiteList('0xDef1C0ded9bec7F1a1670819833240f027b25EfF');
         await proxyInstance.setDev(owner);
     } else if (deployer.network_id == 5777 || deployer.network_id == 97) { //dev or bsc_test
-        await deployer.deploy(AggregatorsProxy, '0x0000000000000000000000000000000000000000', owner);
+        await deployer.deploy(AggregatorsProxy, 'SWFT Aggregators Proxy', 'SWFTAP-beta', '0x0000000000000000000000000000000000000000', owner);
         let proxyInstance = await AggregatorsProxy.deployed();
+        console.log('AggregatorsProxy address: ' + proxyInstance.address);
         // fee 0.3%
         await proxyInstance.setFee('3000000000000000');
         // add white list

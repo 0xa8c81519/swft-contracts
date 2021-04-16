@@ -9,11 +9,7 @@ import "./interfaces/IChi.sol";
 import "./BEP20.sol";
 
 /// @notice Aggregators Proxy contract of SWFT
-contract AggregatorsProxy is
-    BEP20("SWFT Aggregators Proxy", "SWFT-AP-V1"),
-    ReentrancyGuard,
-    Ownable
-{
+contract AggregatorsProxy is BEP20, ReentrancyGuard, Ownable {
     using SafeMath for uint256;
 
     address constant BNB_ADDRESS = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
@@ -53,7 +49,12 @@ contract AggregatorsProxy is
 
     receive() external payable {}
 
-    constructor(address chiToken, address _owner) public {
+    constructor(
+        string memory _name,
+        string memory _symbol,
+        address chiToken,
+        address _owner
+    ) public BEP20(_name, _symbol) {
         transferOwnership(_owner);
         _CHI_TOKEN_ = chiToken;
     }
