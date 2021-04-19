@@ -102,9 +102,9 @@ module.exports = {
                             fromAddress: fromAddress,
                             slippage: 0,
                             disableEstimate: true,
-                            mainRouteParts: 40,
+                            mainRouteParts: 10,
                             complexityLevel: 3,
-                            parts: 40
+                            parts: 10
                         };
                         let options = {
                             host: config.aggregatorsProxy.oneInch.api.host,
