@@ -20,12 +20,16 @@ const config = {
         chainId: 56
     },
     aggregatorsProxy: {
-        address: '',
+        address: '0x0cd5093987148341F8c92d55E19654FA118D7ae8',
         zeroEx: {
             api: {
                 host: 'bsc.api.0x.org',
                 quote: {
                     path: '/swap/v1/quote',
+                    method: 'GET'
+                },
+                tokens: {
+                    path: '/swap/v1/tokens',
                     method: 'GET'
                 }
             }
@@ -35,6 +39,10 @@ const config = {
                 host: 'api.1inch.exchange',
                 swap: {
                     path: '/v3.0/56/swap',
+                    method: 'GET'
+                },
+                tokens: {
+                    path: '/v3.0/56/tokens',
                     method: 'GET'
                 }
             }

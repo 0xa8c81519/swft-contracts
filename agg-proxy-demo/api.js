@@ -91,6 +91,34 @@ module.exports = {
                             method: config.aggregatorsProxy.zeroEx.api.quote.method,
                         };
                         return get(options, logger);
+                    },
+                    tokens: function () {
+                        let options = {
+                            host: config.aggregatorsProxy.zeroEx.api.host,
+                            port: 443,
+                            path: config.aggregatorsProxy.zeroEx.api.tokens.path,
+                            method: config.aggregatorsProxy.zeroEx.api.tokens.method,
+                        };
+                        return get(options, logger).then(res => {
+                            if (res && res.records) {
+                                let arr = new Array();
+                                let tmap = {};
+                                res.records.forEach(e => {
+                                    let o = {
+                                        symbol: '',
+                                        name: '',
+                                        decimal: '',
+                                        address: '',
+                                        logoURI: ''
+                                    };
+                                    arr.push(o);
+                                    tmap[e.address] = o;
+                                });
+                                return { arr: arr, tmap: tmap };
+                            } else {
+                                return false;
+                            }
+                        });
                     }
                 },
                 oneInch: {
@@ -113,6 +141,25 @@ module.exports = {
                             method: config.aggregatorsProxy.oneInch.api.swap.method,
                         };
                         return get(options, logger);
+                    },
+                    tokens: function () {
+                        let options = {
+                            host: config.aggregatorsProxy.oneInch.api.host,
+                            port: 443,
+                            path: config.aggregatorsProxy.oneInch.api.tokens.path,
+                            method: config.aggregatorsProxy.oneInch.api.tokens.method,
+                        };
+                        return get(options, logger).then(res => {
+                            if (res && res.tokens) {
+                                let arr = new Array();
+                                Object.keys(res.tokens).forEach(key => {
+                                    arr.push(res.tokens[key]);
+                                })
+                                return { arr: arr, tmap: res.tokens };
+                            } else {
+                                return false;
+                            }
+                        });
                     }
                 }
             };

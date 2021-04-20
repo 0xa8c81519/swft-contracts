@@ -18,8 +18,11 @@ const aggProxyAddress = config.default.aggregatorsProxy.address;
 const bnb = '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE';
 const cake = '0x0E09FaBB73Bd3Ade0a17ECC321fD13a19e81cE82';
 const busd = '0x55d398326f99059ff775485246999027b3197955';
+const usdc = '0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d';
+const dai = '0x1af3f329e8be154074d8769d1ffa4ee058b1dbc3';
 const oneInchRouter = '0x11111112542d85b3ef69ae05771c2dccff4faa26';
 const zeroExRouter = '0xDef1C0ded9bec7F1a1670819833240f027b25EfF';
+const uni = '0xbf5140a22578168fd562dccf235e5d43a02ce9b1';
 
 // 初始化rpc provider，浏览器中不需要
 const provider = new ethers.providers.JsonRpcProvider(config.default.rpc.url);
@@ -33,15 +36,9 @@ const aggregatorsProxyContract = new ethers.Contract(aggProxyAddress, Aggregator
 
 const busdContract = new ethers.Contract(busd, BEP20Json.abi, wallet);
 const cakeContract = new ethers.Contract(cake, BEP20Json.abi, wallet);
-
-let done = false;
-// let filter = aggregatorsProxyContract.filters.Swap(null, null, null, null, null, null, null);
-// 监听一下swap调用成功后返回的数据
-// aggregatorsProxyContract.on(filter, (fromToken, toToken, sender, fromAmount, minReturnAmount, returnAmount, target) => {
-//     logger.info('swap record:\nfromToken: ' + fromToken + '\ntoToken: ' + toToken + '\nsender: ' + sender + '\n fromAmount: ' + fromAmount + '\nminReturnAmount: ' + minReturnAmount + '\nreturnAmount: ' + returnAmount + '\ntarget: ' + target);
-//     done = true;
-// });
-
+const usdcContract = new ethers.Contract(usdc, BEP20Json.abi, wallet);
+const daiContract = new ethers.Contract(dai, BEP20Json.abi, wallet);
+const uniContract = new ethers.Contract(uni, BEP20Json.abi, wallet);
 
 let api = apiModule.init(log4js, config.default);
 
@@ -50,135 +47,162 @@ let slippage = 0.03;
 
 let denominator = new BigNumber(10).exponentiatedBy(18);
 
-// 调用1inch和0x的api
-// 1 cake 换 busd
-// pArr.push(api.oneInch.swap(cake, busd, amountWei.toFixed(0), aggProxyAddress));
-// pArr.push(api.zeroEx.quote(cake, busd, amountWei.toFixed(0)));
-// 0.05 bnb swap busd
+function doSwap(fromToken, toToken, approveTarget, amtWei, minReturn, data, deadLine, txData) {
+    logger.info('Approve Target: '+approveTarget);
+    return aggregatorsProxyContract.estimate.swap(fromToken, toToken, approveTarget, amtWei, minReturn, data, deadLine, txData).then(gas => {
+        // 调用链上合约
+        return aggregatorsProxyContract.connect(wallet).swap(fromToken, toToken, approveTarget, amtWei, minReturn, data, deadLine, { value: txData && txData.value ? txData.value : '0x', gasLimit: new ethers.utils.BigNumber(gas).toHexString() }).then(res => {
+            logger.info('Swap tx is send.');
+            let filter = aggregatorsProxyContract.filters.Swap(null, null, null, null, null, null, null);
+            let swapListener = (fromToken, toToken, sender, fromAmount, minReturnAmount, returnAmount, target) => {
+                logger.info('swap record:\nfromToken: ' + fromToken + '\ntoToken: ' + toToken + '\nsender: ' + sender + '\n fromAmount: ' + fromAmount + '\nminReturnAmount: ' + minReturnAmount + '\nreturnAmount: ' + returnAmount + '\ntarget: ' + target);
+            };
+            aggregatorsProxyContract.once(filter, swapListener);
+            return res;
+        });
+    });
+}
 
-function swapBnbToBusd(cb) { // bnb 换 busd
-    logger.info('BNB swap BUSD.');
-
+function getRouter(fromToken, toToken, amtWei, aggAddress) {
     let pArr = new Array();
-    let amtWei = new BigNumber(0.05).multipliedBy(denominator).toFixed(0);
-    pArr.push(api.oneInch.swap(bnb, busd, amtWei, aggProxyAddress));
-    pArr.push(api.zeroEx.quote(bnb, busd, amtWei));
-
-    Promise.all(pArr).then(res => {
-        // 两个api都返回结果之后
-        let oneIncheAmt = new BigNumber(res[0].toTokenAmount);
-        let zeroExAmt = new BigNumber(res[1].buyAmount);
-        logger.info('1inch amt: ' + oneIncheAmt.div(denominator).toFormat(18, BigNumber.ROUND_DOWN));
-        logger.info('zeroEx amt: ' + zeroExAmt.div(denominator).toFormat(18, BigNumber.ROUND_DOWN));
-        let oneInchCompareToZeroEx = function (_oneInchAmt, _zeroExAmt) {
-            return oneIncheAmt.comparedTo(zeroExAmt) > 0;
-            // return false;
+    pArr.push(api.oneInch.tokens());
+    pArr.push(api.zeroEx.tokens());
+    return Promise.all(pArr).then(res => {
+        logger.debug(res.length);
+        let tokens = [fromToken.toLowerCase(), toToken.toLowerCase()];
+        let rArr = new Array();
+        for (let i = 0; i < res.length; i++) {
+            rArr[i] = new Array();
+            for (let n = 0; n < tokens.length; n++) {
+                if (res[i] && res[i].tmap[tokens[n]]) {
+                    rArr[i][n] = 1;
+                } else {
+                    rArr[i][n] = 0;
+                }
+            }
+        }
+        let calculateMatrix = arr => {
+            let len_0 = 0;
+            for (let i = 0; i < arr.length; i++) {
+                if (i === 0) {
+                    len_0 = arr[i].length;
+                } else {
+                    if (len_0 !== arr[i].length) {
+                        return -1;
+                    }
+                }
+            }
+            let r = 0;
+            let tLen = arr[0].length * arr.length;
+            arr.forEach(a => {
+                a.forEach(e => {
+                    tLen--;
+                    if (e === 1) {
+                        r += 2 ** tLen;
+                    }
+                });
+            });
+            return r;
         };
-        let oneInchData = res[0].tx.data;
-        let zeroExData = res[1].data;
-        // 比较价格，选最优的api返回的data数据
-        let data = oneInchCompareToZeroEx(oneIncheAmt, zeroExAmt) ? oneInchData : zeroExData;
-        // 根据滑点，能够接受的最小的兑换数量
-        let minReturn = oneInchCompareToZeroEx(oneIncheAmt, zeroExAmt) ? oneIncheAmt.multipliedBy(1 - slippage) : zeroExAmt.multipliedBy(1 - slippage);
-        logger.debug('min return amt: ' + minReturn.div(denominator).toFormat(18, 1));
-        let approveTarget = oneInchCompareToZeroEx(oneIncheAmt, zeroExAmt) ? oneInchRouter : zeroExRouter;
-        logger.info('Target: ' + approveTarget);
+        for (let i = 0; i < rArr.length; i++) {
+            logger.debug('rArr: ' + rArr[i]);
+        }
+        let result = calculateMatrix(rArr);
+        let getRouterDataFromOneInch = function (fromToken, toToken, _amtWei, aggAddress) {
+            return api.oneInch.swap(fromToken, toToken, _amtWei, aggAddress).then(res => {
+                let oneIncheAmt = new BigNumber(res.toTokenAmount);
+                logger.info('1inch amt: ' + oneIncheAmt.div(denominator).toFormat(18, BigNumber.ROUND_DOWN));
+                let oneInchData = res.tx.data;
+                let approveTarget = res.tx.to;
+                return { approveTarget: approveTarget, outWei: oneIncheAmt, data: oneInchData };
+            });
+        };
+        let getRouterDataFromZeroEx = function (fromToken, toToken, _amtWei) {
+            return api.zeroEx.quote(fromToken, toToken, _amtWei).then(res => {
+                let zeroExAmt = new BigNumber(res.buyAmount);
+                logger.info('zeroEx amt: ' + zeroExAmt.div(denominator).toFormat(18, BigNumber.ROUND_DOWN));
+                let zeroExData = res.data;
+                let approveTarget = res.to;
+                return { approveTarget: approveTarget, outWei: zeroExAmt, data: zeroExData };
+            });
+        };
+        logger.debug("result: " + result);
+        switch (result) {
+            case -1:
+                throw new Error('State Wrong.');
+            case 15:
+                // both
+                let pArr = new Array();
+                pArr.push(getRouterDataFromOneInch(fromToken, toToken, amtWei, aggProxyAddress));
+                pArr.push(getRouterDataFromZeroEx(fromToken, toToken, amtWei));
+                return Promise.all(pArr).then(res => {
+                    let oneInchAmt = new BigNumber(res[0].outWei);
+                    let zeroExAmt = new BigNumber(res[1].outWei);
+                    if (oneInchAmt.comparedTo(zeroExAmt) >= 0) {
+                        return res[0];
+                    } else {
+                        return res[1];
+                    }
+                });
+            case 12:
+                // 1
+                return getRouterDataFromOneInch(fromToken, toToken, amtWei, aggProxyAddress);
+            case 14:
+                // 1
+                return getRouterDataFromOneInch(fromToken, toToken, amtWei, aggProxyAddress);
+            case 13:
+                // 1
+                return getRouterDataFromOneInch(fromToken, toToken, amtWei, aggProxyAddress);
+            case 3:
+                // 0
+                return getRouterDataFromZeroEx(fromToken, toToken, amtWei);
+            case 11:
+                // 0
+                return getRouterDataFromZeroEx(fromToken, toToken, amtWei);
+            case 7:
+                //0
+                return getRouterDataFromZeroEx(fromToken, toToken, amtWei);
+            default:
+                throw new Error('No statue.');
+
+        }
+    });
+}
+
+function swapBnbToBusd() { // bnb 换 busd
+    logger.info('BNB swap BUSD.');
+    let amtWei = new BigNumber(0.05).multipliedBy(denominator).toFixed(0);
+    return getRouter(bnb, busd, amtWei, aggProxyAddress).then(router => {
+        let outAmtWei = new BigNumber(router.outWei);
+        let minReturn = outAmtWei.multipliedBy(1 - slippage);
         let deadLine = Math.floor(new Date() / 1000) + 20 * 60;
         let valHex = new ethers.utils.BigNumber(amtWei).toHexString();
         logger.debug('value hex: ' + valHex);
-        logger.debug('zeroEx gas suggestion: ' + res[1].gas);
-        aggregatorsProxyContract.estimate.swap(bnb, busd, approveTarget, amtWei, minReturn.toFixed(0), data, deadLine, { value: valHex, gasLimit: new ethers.utils.BigNumber(300000).toHexString() }).then(gas => {
-            // 调用链上合约
-            aggregatorsProxyContract.connect(wallet).swap(bnb, busd, approveTarget, amtWei, minReturn.toFixed(0), data, deadLine, { value: valHex, gasLimit: new ethers.utils.BigNumber(gas).toHexString() }).then(res => {
-                logger.info('Swap tx is send.');
-                let filter = aggregatorsProxyContract.filters.Swap(null, null, null, null, null, null, null);
-                let swapListener = (fromToken, toToken, sender, fromAmount, minReturnAmount, returnAmount, target) => {
-                    logger.info('swap record:\nfromToken: ' + fromToken + '\ntoToken: ' + toToken + '\nsender: ' + sender + '\n fromAmount: ' + fromAmount + '\nminReturnAmount: ' + minReturnAmount + '\nreturnAmount: ' + returnAmount + '\ntarget: ' + target);
-                    if (cb) {
-                        cb(true);
-                    }
-                };
-                aggregatorsProxyContract.once(filter, swapListener);
-            }).catch(e => {
-                logger.error(e);
-            });
+        return doSwap(bnb, busd, router.approveTarget, amtWei, minReturn.toFixed(0), router.data, deadLine, { value: valHex, gasLimit: new ethers.utils.BigNumber(650000).toHexString() }).then(res => {
+            console.info(res);
         }).catch(e => {
             logger.error(e);
         });
-    }).catch(e => {
-        logger.error(e);
     });
 };
 
-async function swapBusdToCake(cb) { // busd 换 cake
+async function swapBusdToCake() { // busd 换 cake
     logger.info('BUSD swap CAKE.');
-    let pArr = new Array();
     logger.debug('accounts[0]: ' + walletMnemonic.address);
     let busdBalance = await busdContract.balanceOf(walletMnemonic.address);
     logger.debug('busd balance: ' + busdBalance);
     let swap = function () {
         let amtWei = String(busdBalance);
         logger.debug('amtWei: ' + amtWei);
-        pArr.push(api.oneInch.swap(busd, cake, amtWei, aggProxyAddress));
-        pArr.push(api.zeroEx.quote(busd, cake, amtWei));
-
-        Promise.all(pArr).then(res => {
-            let oneIncheAmt = new BigNumber(res[0].toTokenAmount);
-            let zeroExAmt = new BigNumber(res[1].buyAmount);
-            logger.info('1inch amt: ' + oneIncheAmt.div(denominator).toFormat(18, BigNumber.ROUND_DOWN));
-            logger.info('zeroEx amt: ' + zeroExAmt.div(denominator).toFormat(18, BigNumber.ROUND_DOWN));
-            let oneInchCompareToZeroEx = function (_oneInchAmt, _zeroExAmt) {
-                return oneIncheAmt.comparedTo(zeroExAmt) > 0;
-                // return false;
-            };
-            let oneInchData = res[0].tx.data;
-            let zeroExData = res[1].data;
-            // 比较价格，选最优的api返回的data数据
-            let data = oneInchCompareToZeroEx(oneIncheAmt, zeroExAmt) ? oneInchData : zeroExData;
-            // 根据滑点，能够接受的最小的兑换数量
-            let minReturn = oneInchCompareToZeroEx(oneIncheAmt, zeroExAmt) ? oneIncheAmt.multipliedBy(1 - slippage) : zeroExAmt.multipliedBy(1 - slippage);
-            logger.debug('min return amt: ' + minReturn.div(denominator).toFormat(18, 1));
-            let approveTarget = oneInchCompareToZeroEx(oneIncheAmt, zeroExAmt) ? oneInchRouter : zeroExRouter;
-            logger.info('Target: ' + approveTarget);
+        return getRouter(busd, cake, amtWei, aggProxyAddress).then(router => {
+            let outAmtWei = new BigNumber(router.outWei);
+            let minReturn = outAmtWei.multipliedBy(1 - slippage);
             let deadLine = Math.floor(new Date() / 1000) + 20 * 60;
-            logger.debug('zeroEx gas suggestion: ' + res[1].gas);
-            // wallet.sendTransaction({ to: res[1].to, data: zeroExData, gasLimit: new ethers.utils.BigNumber(res[1].gas).toHexString() }).then(tx => {
-            //     logger.debug(tx);
-            // });
-            aggregatorsProxyContract.estimate.swap(busd, cake, approveTarget, amtWei, minReturn.toFixed(0), data, deadLine, { gasLimit: new ethers.utils.BigNumber(650000) }).then(gas => {
-                // 调用链上合约
-                aggregatorsProxyContract.connect(wallet).swap(busd, cake, approveTarget, amtWei, minReturn.toFixed(0), data, deadLine, { gasLimit: new ethers.utils.BigNumber(gas) }).then(res => {
-                    logger.info('Swap tx is send.');
-                    let filter = aggregatorsProxyContract.filters.Swap(null, null, null, null, null, null, null);
-                    let swapListener = (fromToken, toToken, sender, fromAmount, minReturnAmount, returnAmount, target) => {
-                        logger.info('swap record:\nfromToken: ' + fromToken + '\ntoToken: ' + toToken + '\nsender: ' + sender + '\n fromAmount: ' + fromAmount + '\nminReturnAmount: ' + minReturnAmount + '\nreturnAmount: ' + returnAmount + '\ntarget: ' + target);
-                        if (cb) {
-                            cb(true);
-                        }
-                    };
-                    aggregatorsProxyContract.once(filter, swapListener);
-                }).catch(e => {
-                    logger.error(e);
-                });
-                // }).catch(e => {
-                //     logger.error(e);
-                // });
-                // logger.debug('busd: ' + busd);
-                // logger.debug('cake: ' + cake);
-                // logger.debug('approveTarget: ' + approveTarget);
-                // logger.debug('amtWei: ' + amtWei);
-                // logger.debug('minRetrun: ' + minReturn.toFixed(0));
-                // logger.debug('data: ' + data);
-                // logger.debug('deadLine: ' + deadLine);
-                // let calldata = new ethers.utils.Interface(AggregatorsProxyJson.abi).functions.swap.encode([busd, cake, approveTarget, amtWei, minReturn.toFixed(0), data, deadLine]);
-                // wallet.sendTransaction({ to: aggProxyAddress, data: calldata }).then(tx => {
-                //     logger.debug('tx: ' + tx);
-                // });
+            return doSwap(busd, cake, router.approveTarget, amtWei, minReturn.toFixed(0), router.data, deadLine, { gasLimit: new ethers.utils.BigNumber(650000).toHexString() }).then(res => {
+                console.info(res);
             }).catch(e => {
                 logger.error(e);
             });
-        }).catch(e => {
-            logger.error(e);
         });
     };
 
@@ -197,61 +221,93 @@ async function swapBusdToCake(cb) { // busd 换 cake
     }
 
 };
+async function swapBusdToDai() { // busd 换 dai
+    logger.info('BUSD swap DAI.');
+    logger.debug('accounts[0]: ' + walletMnemonic.address);
+    let busdBalance = await busdContract.balanceOf(walletMnemonic.address);
+    logger.debug('busd balance: ' + busdBalance);
+    let swap = function () {
+        let amtWei = String(busdBalance);
+        logger.debug('amtWei: ' + amtWei);
+        return getRouter(busd, dai, amtWei, aggProxyAddress).then(router => {
+            let outAmtWei = new BigNumber(router.outWei);
+            let minReturn = outAmtWei.multipliedBy(1 - slippage);
+            let deadLine = Math.floor(new Date() / 1000) + 20 * 60;
+            return doSwap(busd, dai, router.approveTarget, amtWei, minReturn.toFixed(0), router.data, deadLine, { gasLimit: new ethers.utils.BigNumber(650000).toHexString() }).then(res => {
+                console.info(res);
+            }).catch(e => {
+                logger.error(e);
+            });
+        });
+    };
 
-async function swapCakeToBnb(cb) { // cake 换 bnb
+    let allowance = await busdContract.allowance(walletMnemonic.address, aggProxyAddress);
+    logger.debug('allowance: ' + allowance);
+    if (new BigNumber(allowance).comparedTo(busdBalance) < 0) {
+        busdContract.approve(aggProxyAddress, busdBalance).then(() => {
+            let filterApprove = busdContract.filters.Approval(walletMnemonic.address, aggProxyAddress, null);
+            busdContract.once(filterApprove, (owner, spender, amount) => { // approve 成功以后才能兑换
+                logger.debug('Approve success: ' + amount);
+                swap();
+            });
+        });
+    } else {
+        swap();
+    }
+
+};
+async function swapBusdToUni() { // busd 换 uni
+    logger.info('BUSD swap UNI.');
+    logger.debug('accounts[0]: ' + walletMnemonic.address);
+    let busdBalance = await busdContract.balanceOf(walletMnemonic.address);
+    logger.debug('busd balance: ' + busdBalance);
+    let swap = function () {
+        let amtWei = String(busdBalance);
+        logger.debug('amtWei: ' + amtWei);
+        return getRouter(busd, uni, amtWei, aggProxyAddress).then(router => {
+            let outAmtWei = new BigNumber(router.outWei);
+            let minReturn = outAmtWei.multipliedBy(1 - slippage);
+            let deadLine = Math.floor(new Date() / 1000) + 20 * 60;
+            return doSwap(busd, uni, router.approveTarget, amtWei, minReturn.toFixed(0), router.data, deadLine, { gasLimit: new ethers.utils.BigNumber(650000).toHexString() }).then(res => {
+                console.info(res);
+            }).catch(e => {
+                logger.error(e);
+            });
+        });
+    };
+
+    let allowance = await busdContract.allowance(walletMnemonic.address, aggProxyAddress);
+    logger.debug('allowance: ' + allowance);
+    if (new BigNumber(allowance).comparedTo(busdBalance) < 0) {
+        busdContract.approve(aggProxyAddress, busdBalance).then(() => {
+            let filterApprove = busdContract.filters.Approval(walletMnemonic.address, aggProxyAddress, null);
+            busdContract.once(filterApprove, (owner, spender, amount) => { // approve 成功以后才能兑换
+                logger.debug('Approve success: ' + amount);
+                swap();
+            });
+        });
+    } else {
+        swap();
+    }
+
+};
+async function swapCakeToBnb() { // cake 换 bnb
     logger.info('CAKE swap BNB.');
-    let pArr = new Array();
     logger.debug('accounts[0]: ' + walletMnemonic.address);
     let cakeBalance = await cakeContract.balanceOf(walletMnemonic.address);
     logger.debug('cake balance: ' + cakeBalance);
     let swap = function () {
         let amtWei = String(cakeBalance);
         logger.debug('amtWei: ' + amtWei);
-        pArr.push(api.oneInch.swap(cake, bnb, amtWei, aggProxyAddress));
-        pArr.push(api.zeroEx.quote(cake, bnb, amtWei));
-
-        Promise.all(pArr).then(res => {
-            let oneIncheAmt = new BigNumber(res[0].toTokenAmount);
-            let zeroExAmt = new BigNumber(res[1].buyAmount);
-            logger.info('1inch amt: ' + oneIncheAmt.div(denominator).toFormat(18, BigNumber.ROUND_DOWN));
-            logger.info('zeroEx amt: ' + zeroExAmt.div(denominator).toFormat(18, BigNumber.ROUND_DOWN));
-            let oneInchCompareToZeroEx = function (_oneInchAmt, _zeroExAmt) {
-                return oneIncheAmt.comparedTo(zeroExAmt) > 0;
-                // return false;
-            };
-            let oneInchData = res[0].tx.data;
-            let zeroExData = res[1].data;
-            // 比较价格，选最优的api返回的data数据
-            let data = oneInchCompareToZeroEx(oneIncheAmt, zeroExAmt) ? oneInchData : zeroExData;
-            // 根据滑点，能够接受的最小的兑换数量
-            let minReturn = oneInchCompareToZeroEx(oneIncheAmt, zeroExAmt) ? oneIncheAmt.multipliedBy(1 - slippage) : zeroExAmt.multipliedBy(1 - slippage);
-            logger.debug('min return amt: ' + minReturn.div(denominator).toFormat(18, 1));
-            let approveTarget = oneInchCompareToZeroEx(oneIncheAmt, zeroExAmt) ? oneInchRouter : zeroExRouter;
-            logger.info('Target: ' + approveTarget);
+        return getRouter(cake, bnb, amtWei, aggProxyAddress).then(router => {
+            let outAmtWei = new BigNumber(router.outWei);
+            let minReturn = outAmtWei.multipliedBy(1 - slippage);
             let deadLine = Math.floor(new Date() / 1000) + 20 * 60;
-            logger.debug('zeroEx gas suggestion: ' + res[1].gas);
-            aggregatorsProxyContract.estimate.swap(cake, bnb, approveTarget, amtWei, minReturn.toFixed(0), data, deadLine, { gasLimit: new ethers.utils.BigNumber(650000).toHexString() }).then(gas => {
-                // 调用链上合约
-                aggregatorsProxyContract.connect(wallet).swap(cake, bnb, approveTarget, amtWei, minReturn.toFixed(0), data, deadLine, { gasLimit: new ethers.utils.BigNumber(gas).toHexString() }).then(res => {
-                    logger.info('Swap tx is send.');
-                    let filter = aggregatorsProxyContract.filters.Swap(null, null, null, null, null, null, null);
-                    let swapListener = (fromToken, toToken, sender, fromAmount, minReturnAmount, returnAmount, target) => {
-                        logger.info('swap record:\nfromToken: ' + fromToken + '\ntoToken: ' + toToken + '\nsender: ' + sender + '\n fromAmount: ' + fromAmount + '\nminReturnAmount: ' + minReturnAmount + '\nreturnAmount: ' + returnAmount + '\ntarget: ' + target);
-                        if (cb) {
-                            cb(true);
-                        }
-                    };
-                    aggregatorsProxyContract.once(filter, swapListener);
-
-                }).catch(e => {
-                    logger.error(e);
-                });
+            return doSwap(cake, bnb, router.approveTarget, amtWei, minReturn.toFixed(0), router.data, deadLine, { gasLimit: new ethers.utils.BigNumber(650000).toHexString() }).then(res => {
+                console.info(res);
             }).catch(e => {
                 logger.error(e);
             });
-
-        }).catch(e => {
-            logger.error(e);
         });
     };
 
@@ -269,19 +325,117 @@ async function swapCakeToBnb(cb) { // cake 换 bnb
         swap();
     }
 };
+async function swapDaiToBnb() { // dai 换 bnb
+    logger.info('DAI swap BNB.');
+    logger.debug('accounts[0]: ' + walletMnemonic.address);
+    let daiBalance = await daiContract.balanceOf(walletMnemonic.address);
+    logger.debug('dai balance: ' + daiBalance);
+    let swap = function () {
+        let amtWei = String(daiBalance);
+        logger.debug('amtWei: ' + amtWei);
+        return getRouter(dai, bnb, amtWei, aggProxyAddress).then(router => {
+            let outAmtWei = new BigNumber(router.outWei);
+            let minReturn = outAmtWei.multipliedBy(1 - slippage);
+            let deadLine = Math.floor(new Date() / 1000) + 20 * 60;
+            return doSwap(dai, bnb, router.approveTarget, amtWei, minReturn.toFixed(0), router.data, deadLine, { gasLimit: new ethers.utils.BigNumber(650000).toHexString() }).then(res => {
+                console.info(res);
+            }).catch(e => {
+                logger.error(e);
+            });
+        });
+    };
 
-// swapBnbToBusd();
-// swapBusdToCake();
-// swapCakeToBnb();
+    let allowance = await daiContract.allowance(walletMnemonic.address, aggProxyAddress);
+    logger.debug('allowance: ' + allowance);
+    if (new BigNumber(allowance).comparedTo(daiBalance) < 0) {
+        daiContract.approve(aggProxyAddress, daiBalance).then(() => {
+            let filterApprove = daiContract.filters.Approval(walletMnemonic.address, aggProxyAddress, null);
+            daiContract.once(filterApprove, (owner, spender, amount) => { // approve 成功以后才能兑换
+                logger.debug('Approve success: ' + amount);
+                swap();
+            });
+        });
+    } else {
+        swap();
+    }
+};
+async function swapUniToBnb() { // dai 换 bnb
+    logger.info('UNI swap BNB.');
+    logger.debug('accounts[0]: ' + walletMnemonic.address);
+    let uniBalance = await uniContract.balanceOf(walletMnemonic.address);
+    logger.debug('uni balance: ' + uniBalance);
+    let swap = function () {
+        let amtWei = String(uniBalance);
+        logger.debug('amtWei: ' + amtWei);
+        return getRouter(uni, bnb, amtWei, aggProxyAddress).then(router => {
+            let outAmtWei = new BigNumber(router.outWei);
+            let minReturn = outAmtWei.multipliedBy(1 - slippage);
+            let deadLine = Math.floor(new Date() / 1000) + 20 * 60;
+            return doSwap(uni, bnb, router.approveTarget, amtWei, minReturn.toFixed(0), router.data, deadLine, { gasLimit: new ethers.utils.BigNumber(650000).toHexString() }).then(res => {
+                console.info(res);
+            }).catch(e => {
+                logger.error(e);
+            });
+        });
+    };
+
+    let allowance = await uniContract.allowance(walletMnemonic.address, aggProxyAddress);
+    logger.debug('allowance: ' + allowance);
+    if (new BigNumber(allowance).comparedTo(uniBalance) < 0) {
+        uniContract.approve(aggProxyAddress, uniBalance).then(() => {
+            let filterApprove = uniContract.filters.Approval(walletMnemonic.address, aggProxyAddress, null);
+            uniContract.once(filterApprove, (owner, spender, amount) => { // approve 成功以后才能兑换
+                logger.debug('Approve success: ' + amount);
+                swap();
+            });
+        });
+    } else {
+        swap();
+    }
+};
+async function swapBusdToBnb() { // busd 换 bnb
+    logger.info('BUSD swap BNB.');
+    logger.debug('accounts[0]: ' + walletMnemonic.address);
+    let busdBalance = await busdContract.balanceOf(walletMnemonic.address);
+    logger.debug('busd balance: ' + busdBalance);
+    let swap = function () {
+        let amtWei = String(busdBalance);
+        logger.debug('amtWei: ' + amtWei);
+        return getRouter(busd, bnb, amtWei, aggProxyAddress).then(router => {
+            let outAmtWei = new BigNumber(router.outWei);
+            let minReturn = outAmtWei.multipliedBy(1 - slippage);
+            let deadLine = Math.floor(new Date() / 1000) + 20 * 60;
+            return doSwap(busd, bnb, router.approveTarget, amtWei, minReturn.toFixed(0), router.data, deadLine, { gasLimit: new ethers.utils.BigNumber(650000).toHexString() }).then(res => {
+                console.info(res);
+            }).catch(e => {
+                logger.error(e);
+            });
+        });
+    };
+
+    let allowance = await busdContract.allowance(walletMnemonic.address, aggProxyAddress);
+    logger.debug('allowance: ' + allowance);
+    if (new BigNumber(allowance).comparedTo(busdBalance) < 0) {
+        busdContract.approve(aggProxyAddress, busdBalance).then(() => {
+            let filterApprove = busdContract.filters.Approval(walletMnemonic.address, aggProxyAddress, null);
+            busdContract.once(filterApprove, (owner, spender, amount) => { // approve 成功以后才能兑换
+                logger.debug('Approve success: ' + amount);
+                swap();
+            });
+        });
+    } else {
+        swap();
+    }
+};
 
 switch (process.argv[2]) {
     case '0':
         swapBnbToBusd();
         break;
     case '1':
-        swapBusdToCake();
+        swapBusdToUni();
         break;
     case '2':
-        swapCakeToBnb();
+        swapUniToBnb();
         break;
 }
