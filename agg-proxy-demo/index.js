@@ -21,8 +21,8 @@ const busd = '0x55d398326f99059ff775485246999027b3197955';
 const usdc = '0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d';
 const dai = '0x1af3f329e8be154074d8769d1ffa4ee058b1dbc3';
 const uni = '0xbf5140a22578168fd562dccf235e5d43a02ce9b1';
-const thirdPartyAddress = '0xc529b0738cFAeaDb378bdC9FF0B35dc6DAf2a65D';
-// const thirdPartyAddress = ethers.constants.AddressZero;
+// const thirdPartyAddress = '0xc529b0738cFAeaDb378bdC9FF0B35dc6DAf2a65D';
+const thirdPartyAddress = ethers.constants.AddressZero;
 
 // 初始化rpc provider，浏览器中不需要
 const provider = new ethers.providers.JsonRpcProvider(config.default.rpc.url);
@@ -54,8 +54,9 @@ function doSwap(fromToken, toToken, approveTarget, amtWei, minReturn, data, _thi
     logger.debug('minReturn: ' + minReturn);
     logger.debug('_thirdPartyAddress: ' + _thirdPartyAddress);
     logger.debug('deadLine: ' + deadLine);
-    logger.debug('txData: ' + txData);
+    logger.debug('txData: ' + txData.value);
     logger.info('Approve Target: ' + approveTarget);
+    logger.info('data: ' + data);
     return aggregatorsProxyContract.estimate.swap(fromToken, toToken, approveTarget, amtWei, minReturn, data, _thirdPartyAddress, deadLine, txData).then(gas => {
         // 调用链上合约
         return aggregatorsProxyContract.connect(wallet).swap(fromToken, toToken, approveTarget, amtWei, minReturn, data, _thirdPartyAddress, deadLine, { value: txData && txData.value ? txData.value : '0x', gasLimit: new ethers.utils.BigNumber(gas).toHexString() }).then(res => {

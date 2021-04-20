@@ -103,17 +103,10 @@ contract AggregatorsProxy is BEP20, ReentrancyGuard, Ownable {
             isWhiteListed[approveTarget],
             "AggregatorsProxy: Not Whitelist Contract"
         );
-        if (toToken == BNB_ADDRESS) {
-            require(
-                address(this).balance == 0,
-                "AggregatorsProxy: Proxy's BNB balance is not clean."
-            );
-        } else {
-            require(
-                IBEP20(toToken).balanceOf(address(this)) == 0,
-                "AggregatorsProxy: Proxy's toToken balance is not clean."
-            );
-        }
+        uint256 _toTokenBalanceOrigin =
+            toToken == BNB_ADDRESS
+                ? address(this).balance
+                : IBEP20(toToken).balanceOf(address(this));
         (bool success, ) =
             approveTarget.call{value: fromToken == BNB_ADDRESS ? msg.value : 0}(
                 callDataConcat
@@ -121,8 +114,10 @@ contract AggregatorsProxy is BEP20, ReentrancyGuard, Ownable {
         require(success, "AggregatorsProxy: External Swap execution Failed");
         uint256 returnAmt =
             toToken == BNB_ADDRESS
-                ? address(this).balance
-                : IBEP20(toToken).balanceOf(address(this));
+                ? address(this).balance.sub(_toTokenBalanceOrigin)
+                : IBEP20(toToken).balanceOf(address(this)).sub(
+                    _toTokenBalanceOrigin
+                );
         require(
             returnAmt >= minReturnAmount,
             "AggregatorsProxy: Return amount is not enough"

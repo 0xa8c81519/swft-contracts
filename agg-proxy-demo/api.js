@@ -82,7 +82,7 @@ module.exports = {
                             sellToken: sellToken,
                             buyToken: buyToken,
                             sellAmount: sellAmountWei,
-                            slippagePercentage: 0,
+                            // slippagePercentage: 0,
                         };
                         let options = {
                             host: config.aggregatorsProxy.zeroEx.api.host,
@@ -128,11 +128,11 @@ module.exports = {
                             toTokenAddress: toToken,
                             amount: amountWei,
                             fromAddress: fromAddress,
-                            slippage: 0,
+                            slippage: 5,
                             disableEstimate: true,
-                            mainRouteParts: 10,
+                            mainRouteParts: 40,
                             complexityLevel: 3,
-                            parts: 10
+                            parts: 40
                         };
                         let options = {
                             host: config.aggregatorsProxy.oneInch.api.host,
