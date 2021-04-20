@@ -28,10 +28,10 @@ let oneInchRouter = '0x11111112542d85b3ef69ae05771c2dccff4faa26';
 let zeroExRouter = '0xDef1C0ded9bec7F1a1670819833240f027b25EfF';
 
 (async function doSetting() {
-    // await aggregatorsProxyContract.addWhiteList(zeroExRouter);
-    // await aggregatorsProxyContract.addWhiteList(oneInchRouter);
+    await aggregatorsProxyContract.addWhiteList(zeroExRouter);
+    await aggregatorsProxyContract.addWhiteList(oneInchRouter);
     // await aggregatorsProxyContract.setDev(walletMnemonic.address);
-    await aggregatorsProxyContract.setFee('3000000000000000');
+    // await aggregatorsProxyContract.setFee('3000000000000000');
 })();
 
 

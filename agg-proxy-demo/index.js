@@ -20,9 +20,9 @@ const cake = '0x0E09FaBB73Bd3Ade0a17ECC321fD13a19e81cE82';
 const busd = '0x55d398326f99059ff775485246999027b3197955';
 const usdc = '0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d';
 const dai = '0x1af3f329e8be154074d8769d1ffa4ee058b1dbc3';
-const oneInchRouter = '0x11111112542d85b3ef69ae05771c2dccff4faa26';
-const zeroExRouter = '0xDef1C0ded9bec7F1a1670819833240f027b25EfF';
 const uni = '0xbf5140a22578168fd562dccf235e5d43a02ce9b1';
+const thirdPartyAddress = '0xc529b0738cFAeaDb378bdC9FF0B35dc6DAf2a65D';
+// const thirdPartyAddress = ethers.constants.AddressZero;
 
 // 初始化rpc provider，浏览器中不需要
 const provider = new ethers.providers.JsonRpcProvider(config.default.rpc.url);
@@ -47,15 +47,22 @@ let slippage = 0.03;
 
 let denominator = new BigNumber(10).exponentiatedBy(18);
 
-function doSwap(fromToken, toToken, approveTarget, amtWei, minReturn, data, deadLine, txData) {
-    logger.info('Approve Target: '+approveTarget);
-    return aggregatorsProxyContract.estimate.swap(fromToken, toToken, approveTarget, amtWei, minReturn, data, deadLine, txData).then(gas => {
+function doSwap(fromToken, toToken, approveTarget, amtWei, minReturn, data, _thirdPartyAddress, deadLine, txData) {
+    logger.debug('fromToken: ' + fromToken);
+    logger.debug('toToken: ' + toToken);
+    logger.debug('amtWei: ' + amtWei);
+    logger.debug('minReturn: ' + minReturn);
+    logger.debug('_thirdPartyAddress: ' + _thirdPartyAddress);
+    logger.debug('deadLine: ' + deadLine);
+    logger.debug('txData: ' + txData);
+    logger.info('Approve Target: ' + approveTarget);
+    return aggregatorsProxyContract.estimate.swap(fromToken, toToken, approveTarget, amtWei, minReturn, data, _thirdPartyAddress, deadLine, txData).then(gas => {
         // 调用链上合约
-        return aggregatorsProxyContract.connect(wallet).swap(fromToken, toToken, approveTarget, amtWei, minReturn, data, deadLine, { value: txData && txData.value ? txData.value : '0x', gasLimit: new ethers.utils.BigNumber(gas).toHexString() }).then(res => {
+        return aggregatorsProxyContract.connect(wallet).swap(fromToken, toToken, approveTarget, amtWei, minReturn, data, _thirdPartyAddress, deadLine, { value: txData && txData.value ? txData.value : '0x', gasLimit: new ethers.utils.BigNumber(gas).toHexString() }).then(res => {
             logger.info('Swap tx is send.');
-            let filter = aggregatorsProxyContract.filters.Swap(null, null, null, null, null, null, null);
-            let swapListener = (fromToken, toToken, sender, fromAmount, minReturnAmount, returnAmount, target) => {
-                logger.info('swap record:\nfromToken: ' + fromToken + '\ntoToken: ' + toToken + '\nsender: ' + sender + '\n fromAmount: ' + fromAmount + '\nminReturnAmount: ' + minReturnAmount + '\nreturnAmount: ' + returnAmount + '\ntarget: ' + target);
+            let filter = aggregatorsProxyContract.filters.Swap(null, null, null, null, null);
+            let swapListener = (fromToken, toToken, sender, fromAmount, returnAmount) => {
+                logger.info('swap record:\nfromToken: ' + fromToken + '\ntoToken: ' + toToken + '\nsender: ' + sender + '\n fromAmount: ' + fromAmount + '\nreturnAmount: ' + returnAmount);
             };
             aggregatorsProxyContract.once(filter, swapListener);
             return res;
@@ -127,6 +134,8 @@ function getRouter(fromToken, toToken, amtWei, aggAddress) {
             });
         };
         logger.debug("result: " + result);
+        // return getRouterDataFromOneInch(fromToken, toToken, amtWei, aggProxyAddress);
+        // return getRouterDataFromZeroEx(fromToken, toToken, amtWei);
         switch (result) {
             case -1:
                 throw new Error('State Wrong.');
@@ -178,7 +187,7 @@ function swapBnbToBusd() { // bnb 换 busd
         let deadLine = Math.floor(new Date() / 1000) + 20 * 60;
         let valHex = new ethers.utils.BigNumber(amtWei).toHexString();
         logger.debug('value hex: ' + valHex);
-        return doSwap(bnb, busd, router.approveTarget, amtWei, minReturn.toFixed(0), router.data, deadLine, { value: valHex, gasLimit: new ethers.utils.BigNumber(650000).toHexString() }).then(res => {
+        return doSwap(bnb, busd, router.approveTarget, amtWei, minReturn.toFixed(0), router.data, thirdPartyAddress, deadLine, { value: valHex, gasLimit: new ethers.utils.BigNumber(61000000).toHexString() }).then(res => {
             console.info(res);
         }).catch(e => {
             logger.error(e);
@@ -198,7 +207,7 @@ async function swapBusdToCake() { // busd 换 cake
             let outAmtWei = new BigNumber(router.outWei);
             let minReturn = outAmtWei.multipliedBy(1 - slippage);
             let deadLine = Math.floor(new Date() / 1000) + 20 * 60;
-            return doSwap(busd, cake, router.approveTarget, amtWei, minReturn.toFixed(0), router.data, deadLine, { gasLimit: new ethers.utils.BigNumber(650000).toHexString() }).then(res => {
+            return doSwap(busd, cake, router.approveTarget, amtWei, minReturn.toFixed(0), router.data, thirdPartyAddress, deadLine, { gasLimit: new ethers.utils.BigNumber(650000).toHexString() }).then(res => {
                 console.info(res);
             }).catch(e => {
                 logger.error(e);
@@ -233,7 +242,7 @@ async function swapBusdToDai() { // busd 换 dai
             let outAmtWei = new BigNumber(router.outWei);
             let minReturn = outAmtWei.multipliedBy(1 - slippage);
             let deadLine = Math.floor(new Date() / 1000) + 20 * 60;
-            return doSwap(busd, dai, router.approveTarget, amtWei, minReturn.toFixed(0), router.data, deadLine, { gasLimit: new ethers.utils.BigNumber(650000).toHexString() }).then(res => {
+            return doSwap(busd, dai, router.approveTarget, amtWei, minReturn.toFixed(0), router.data, thirdPartyAddress, deadLine, { gasLimit: new ethers.utils.BigNumber(650000).toHexString() }).then(res => {
                 console.info(res);
             }).catch(e => {
                 logger.error(e);
@@ -268,7 +277,7 @@ async function swapBusdToUni() { // busd 换 uni
             let outAmtWei = new BigNumber(router.outWei);
             let minReturn = outAmtWei.multipliedBy(1 - slippage);
             let deadLine = Math.floor(new Date() / 1000) + 20 * 60;
-            return doSwap(busd, uni, router.approveTarget, amtWei, minReturn.toFixed(0), router.data, deadLine, { gasLimit: new ethers.utils.BigNumber(650000).toHexString() }).then(res => {
+            return doSwap(busd, uni, router.approveTarget, amtWei, minReturn.toFixed(0), router.data, thirdPartyAddress, deadLine, { gasLimit: new ethers.utils.BigNumber(650000).toHexString() }).then(res => {
                 console.info(res);
             }).catch(e => {
                 logger.error(e);
@@ -303,7 +312,7 @@ async function swapCakeToBnb() { // cake 换 bnb
             let outAmtWei = new BigNumber(router.outWei);
             let minReturn = outAmtWei.multipliedBy(1 - slippage);
             let deadLine = Math.floor(new Date() / 1000) + 20 * 60;
-            return doSwap(cake, bnb, router.approveTarget, amtWei, minReturn.toFixed(0), router.data, deadLine, { gasLimit: new ethers.utils.BigNumber(650000).toHexString() }).then(res => {
+            return doSwap(cake, bnb, router.approveTarget, amtWei, minReturn.toFixed(0), router.data, thirdPartyAddress, deadLine, { gasLimit: new ethers.utils.BigNumber(650000).toHexString() }).then(res => {
                 console.info(res);
             }).catch(e => {
                 logger.error(e);
@@ -337,7 +346,7 @@ async function swapDaiToBnb() { // dai 换 bnb
             let outAmtWei = new BigNumber(router.outWei);
             let minReturn = outAmtWei.multipliedBy(1 - slippage);
             let deadLine = Math.floor(new Date() / 1000) + 20 * 60;
-            return doSwap(dai, bnb, router.approveTarget, amtWei, minReturn.toFixed(0), router.data, deadLine, { gasLimit: new ethers.utils.BigNumber(650000).toHexString() }).then(res => {
+            return doSwap(dai, bnb, router.approveTarget, amtWei, minReturn.toFixed(0), router.data, thirdPartyAddress, deadLine, { gasLimit: new ethers.utils.BigNumber(650000).toHexString() }).then(res => {
                 console.info(res);
             }).catch(e => {
                 logger.error(e);
@@ -371,7 +380,7 @@ async function swapUniToBnb() { // dai 换 bnb
             let outAmtWei = new BigNumber(router.outWei);
             let minReturn = outAmtWei.multipliedBy(1 - slippage);
             let deadLine = Math.floor(new Date() / 1000) + 20 * 60;
-            return doSwap(uni, bnb, router.approveTarget, amtWei, minReturn.toFixed(0), router.data, deadLine, { gasLimit: new ethers.utils.BigNumber(650000).toHexString() }).then(res => {
+            return doSwap(uni, bnb, router.approveTarget, amtWei, minReturn.toFixed(0), router.data, thirdPartyAddress, deadLine, { gasLimit: new ethers.utils.BigNumber(650000).toHexString() }).then(res => {
                 console.info(res);
             }).catch(e => {
                 logger.error(e);
@@ -405,7 +414,7 @@ async function swapBusdToBnb() { // busd 换 bnb
             let outAmtWei = new BigNumber(router.outWei);
             let minReturn = outAmtWei.multipliedBy(1 - slippage);
             let deadLine = Math.floor(new Date() / 1000) + 20 * 60;
-            return doSwap(busd, bnb, router.approveTarget, amtWei, minReturn.toFixed(0), router.data, deadLine, { gasLimit: new ethers.utils.BigNumber(650000).toHexString() }).then(res => {
+            return doSwap(busd, bnb, router.approveTarget, amtWei, minReturn.toFixed(0), router.data, thirdPartyAddress, deadLine, { gasLimit: new ethers.utils.BigNumber(650000).toHexString() }).then(res => {
                 console.info(res);
             }).catch(e => {
                 logger.error(e);

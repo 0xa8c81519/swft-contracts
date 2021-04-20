@@ -20,7 +20,7 @@ const config = {
         chainId: 56
     },
     aggregatorsProxy: {
-        address: '0x0cd5093987148341F8c92d55E19654FA118D7ae8',
+        address: '0x1D232438E07AaF4B63C3d304BBa39F7F7a426A5C',
         zeroEx: {
             api: {
                 host: 'bsc.api.0x.org',
