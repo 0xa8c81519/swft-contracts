@@ -78,6 +78,10 @@ function getRouter(fromToken, toToken, amtWei, aggAddress) {
     return Promise.all(pArr).then(res => {
         logger.debug(res.length);
         let tokens = [fromToken.toLowerCase(), toToken.toLowerCase()];
+        // Array's data as follow:
+        // 1inch 0  1
+        // 0xEx  1  1
+        //       f  t
         let rArr = new Array();
         for (let i = 0; i < res.length; i++) {
             rArr[i] = new Array();
