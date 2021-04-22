@@ -177,7 +177,7 @@ function getRouter(fromToken, toToken, amtWei, aggAddress) {
                 //0
                 return getRouterDataFromZeroEx(fromToken, toToken, amtWei);
             default:
-                throw new Error('No statue.');
+                throw new Error('Unsupported pair.');
 
         }
     });
